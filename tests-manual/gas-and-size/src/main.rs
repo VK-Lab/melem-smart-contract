@@ -1,10 +1,9 @@
-use std::collections::BTreeMap;
 use casper_engine_test_support::{
-    ExecuteRequestBuilder, LmdbWasmTestBuilder, DEFAULT_ACCOUNT_ADDR,
-    DEFAULT_RUN_GENESIS_REQUEST,
+    ExecuteRequestBuilder, LmdbWasmTestBuilder, DEFAULT_ACCOUNT_ADDR, DEFAULT_RUN_GENESIS_REQUEST,
 };
-use casper_execution_engine::core::engine_state::{ExecuteRequest};
-use casper_types::{runtime_args, ContractHash, RuntimeArgs, Key, account::AccountHash, CLValue};
+use casper_execution_engine::core::engine_state::ExecuteRequest;
+use casper_types::{account::AccountHash, runtime_args, CLValue, ContractHash, Key, RuntimeArgs};
+use std::collections::BTreeMap;
 use tempfile::TempDir;
 
 use serde::{Deserialize, Serialize};
@@ -12,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use clap::Parser;
 
 pub(crate) const NFT_CONTRACT_WASM: &str = "contract.wasm";
-pub(crate) const MINT_SESSION_WASM: &str = "mint_call.wasm";
 pub(crate) const CONTRACT_NAME: &str = "nft_contract";
+pub(crate) const ENTRY_POINT_MINT: &str = "mint";
 pub(crate) const NFT_TEST_COLLECTION: &str = "nft_test";
 pub(crate) const NFT_TEST_SYMBOL: &str = "TEST";
 pub(crate) const ARG_COLLECTION_NAME: &str = "collection_name";
@@ -40,34 +39,40 @@ pub(crate) const TEST_PRETTY_721_META_DATA: &str = r#"{
   "token_uri": "https://www.barfoo.com"
 }"#;
 
+const LONG_ABOUT: &str = "CLI for testing install and mint costs for CEP-78 contract.
+Expects contract.wasm (or other contract name passed as arg) to exist in wasm folder at same level as binary.";
+
+
 #[derive(Parser, Debug)]
-#[command(about, long_about = None)]
+#[command(about, long_about = LONG_ABOUT)]
 struct Args {
     /// Token Supply
-    #[arg(long, default_value_t = 1000000)]
+    #[arg(long)]
     token_supply: u64,
-
-    /// Contract Page Size
-    #[arg(long, default_value_t = 256)]
-    page_size: u64,
 
     /// Contract WASM
     #[arg(long, default_value_t = NFT_CONTRACT_WASM.to_string())]
     contract_wasm: String,
 
+    /// Counts of mints to emit at modulus
+    /// (mint_number % mint_modulus < this value)
+    #[arg(long, default_value_t = 1)]
+    mints_to_show: u64,
 
+    /// Mint modulus to control when minting data is printed
+    /// (mint_number % this value)
+    #[arg(long, default_value_t = 1)]
+    mint_modulus: u64,
 }
-
 
 fn main() {
     let args = Args::parse();
 
-    println!("{:?}", args);
-
     let data_dir = TempDir::new().expect("should create temp dir");
-    println!("global state storing in: {:?}", data_dir.path());
 
     let token_supply = args.token_supply;
+    let mint_modulus = args.mint_modulus;
+    let mints_to_show = args.mints_to_show;
 
     let mut builder = LmdbWasmTestBuilder::new(data_dir.as_ref());
     builder.run_genesis(&DEFAULT_RUN_GENESIS_REQUEST).commit();
@@ -75,45 +80,63 @@ fn main() {
         .with_collection_name(NFT_TEST_COLLECTION.to_string())
         .with_collection_symbol(NFT_TEST_SYMBOL.to_string())
         .with_total_token_supply(token_supply)
-        .with_page_size(args.page_size)
         .build();
 
     builder.exec(install_request).expect_success().commit();
-    println!("token supply: {}  install gas: {}", token_supply, builder.last_exec_gas_cost());
-    let nft_contract_key: Key = get_nft_contract_hash(&builder).into();
+    println!(
+        "{{\"token_supply\": {}, \"install_gas\": {}}}",
+        token_supply,
+        builder.last_exec_gas_cost()
+    );
+    builder.write_scratch_to_db();
+    builder.flush_environment();
+
+    let nft_contract_hash= get_nft_contract_hash(&builder);
+    let nft_contract_key: Key = nft_contract_hash.into();
 
     let initial_size = builder.lmdb_on_disk_size().expect("expected lmdb size");
     let mint_per_block: u64 = 50;
-    println!("mint_count,lmdb_bytes,gas_cost");
+
     for current_mint in 0..token_supply {
-        let mint_session_call =
-            ExecuteRequestBuilder::standard(
-                *DEFAULT_ACCOUNT_ADDR,
-                MINT_SESSION_WASM,
-                runtime_args! {
-            ARG_NFT_CONTRACT_HASH => nft_contract_key,
-            ARG_TOKEN_OWNER => Key::Account(*DEFAULT_ACCOUNT_ADDR),
-            ARG_TOKEN_META_DATA => TEST_PRETTY_721_META_DATA.to_string(),
-                },
-            ).build();
+        let mint_session_call = ExecuteRequestBuilder::contract_call_by_hash(
+            *DEFAULT_ACCOUNT_ADDR,
+            nft_contract_hash,
+            ENTRY_POINT_MINT,
+            runtime_args! {
+                ARG_NFT_CONTRACT_HASH => nft_contract_key,
+                ARG_TOKEN_OWNER => Key::Account(*DEFAULT_ACCOUNT_ADDR),
+                ARG_TOKEN_META_DATA => TEST_PRETTY_721_META_DATA.to_string(),
+            },
+        )
+        .build();
 
-            builder.scratch_exec_and_commit(mint_session_call).expect_success();
-            let last_gas = builder.last_exec_gas_cost();
-            if current_mint % mint_per_block == 0 {
-                // Write out to simulate block created.
-                builder.write_scratch_to_db();
-                builder.flush_environment();
-            }
-            println!("{},{},{}", current_mint, builder.lmdb_on_disk_size().expect("expected lmdb size") - initial_size, last_gas);
+        builder
+            .scratch_exec_and_commit(mint_session_call)
+            .expect_success();
+        let last_gas = builder.last_exec_gas_cost();
+        if current_mint % mint_per_block == 0 || current_mint == token_supply - 1 {
+            // Write out to simulate block created or last data
+            builder.write_scratch_to_db();
+            builder.flush_environment();
         }
+        if current_mint % mint_modulus < mints_to_show {
+            println!(
+                "{{\"operation\": \"mint\", \"count\": {}, \"lmdb_bytes\": {}, \"gas_cost\": {}}}",
+                current_mint,
+                builder.lmdb_on_disk_size().expect("expected lmdb size") - initial_size,
+                last_gas
+            );
+        }
+    }
 
-    println!("Final Growth: {:?}", builder.lmdb_on_disk_size().unwrap() - initial_size);
 
+    println!(
+        "{{\"lmdb_final_bytes\": {:?}}}",
+        builder.lmdb_on_disk_size().unwrap() - initial_size
+    );
 }
 
- fn get_nft_contract_hash(
-    builder: &LmdbWasmTestBuilder,
-) -> ContractHash {
+fn get_nft_contract_hash(builder: &LmdbWasmTestBuilder) -> ContractHash {
     let nft_hash_addr = builder
         .get_expected_account(*DEFAULT_ACCOUNT_ADDR)
         .named_keys()
@@ -229,7 +252,6 @@ pub(crate) struct InstallerRequestBuilder {
     identifier_mode: CLValue,
     metadata_mutability: CLValue,
     burn_mode: CLValue,
-    page_size: CLValue,
 }
 
 impl InstallerRequestBuilder {
@@ -259,7 +281,6 @@ impl InstallerRequestBuilder {
             identifier_mode: CLValue::from_t(NFTIdentifierMode::Ordinal as u8).unwrap(),
             metadata_mutability: CLValue::from_t(MetadataMutability::Mutable as u8).unwrap(),
             burn_mode: CLValue::from_t(BurnMode::Burnable as u8).unwrap(),
-            page_size: CLValue::from_t(10u64).unwrap(),
         }
     }
 
@@ -288,11 +309,6 @@ impl InstallerRequestBuilder {
     pub(crate) fn with_total_token_supply(mut self, total_token_supply: u64) -> Self {
         self.total_token_supply =
             CLValue::from_t(total_token_supply).expect("total_token_supply is legit CLValue");
-        self
-    }
-
-    pub(crate) fn with_page_size(mut self, page_size: u64) -> Self {
-        self.page_size = CLValue::from_t(page_size).expect("page_size is legit CLValue");
         self
     }
 
