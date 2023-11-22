@@ -43,6 +43,7 @@ pub const ARG_TOKEN_OWNER: &str = "token_owner";
 pub const ARG_TOTAL_TOKEN_SUPPLY: &str = "total_token_supply";
 pub const ARG_TRANSFER_FILTER_CONTRACT: &str = "transfer_filter_contract";
 pub const ARG_WHITELIST_MODE: &str = "whitelist_mode";
+pub const ARG_MINTING_FEE: &str = "minting_fee";
 
 pub const ENTRY_POINT_APPROVE: &str = "approve";
 pub const ENTRY_POINT_BALANCE_OF: &str = "balance_of";
@@ -61,6 +62,7 @@ pub const ENTRY_POINT_SET_TOKEN_METADATA: &str = "set_token_metadata";
 pub const ENTRY_POINT_SET_VARIABLES: &str = "set_variables";
 pub const ENTRY_POINT_TRANSFER: &str = "transfer";
 pub const ENTRY_POINT_UPDATED_RECEIPTS: &str = "updated_receipts";
+pub const ENTRY_POINT_GET_ORDER_PURSE: &str = "get_order_purse";
 
 pub const ACL_PACKAGE_MODE: &str = "acl_package_mode";
 pub const ACL_WHITELIST: &str = "acl_whitelist";
@@ -112,10 +114,12 @@ pub const TOKEN_ID: &str = "token_id";
 pub const TOKEN_ISSUERS: &str = "token_issuers";
 pub const TOKEN_OWNERS: &str = "token_owners";
 pub const TOTAL_TOKEN_SUPPLY: &str = "total_token_supply";
+pub const MINTING_FEE: &str = "minting_fee";
 pub const TRANSFER_FILTER_CONTRACT: &str = "transfer_filter_contract";
 pub const TRANSFER_FILTER_CONTRACT_METHOD: &str = "can_transfer";
 pub const UNMATCHED_HASH_COUNT: &str = "unmatched_hash_count";
 pub const WHITELIST_MODE: &str = "whitelist_mode";
+pub const ORDER_PURSE: &str = "order_purse";
 
 // The cap on the amount of tokens within a given CEP-78 collection.
 pub const MAX_TOTAL_TOKEN_SUPPLY: u64 = 1_000_000u64;

@@ -25,6 +25,7 @@ use casper_contract::{
     contract_api::{
         runtime::{self, call_contract, revert},
         storage::{self},
+        system,
     },
     unwrap_or_revert::UnwrapOrRevert,
 };
@@ -32,6 +33,8 @@ use casper_types::{
     contracts::NamedKeys, runtime_args, CLType, CLValue, ContractHash, ContractPackageHash,
     EntryPoint, EntryPointAccess, EntryPointType, EntryPoints, Key, KeyTag, Parameter, RuntimeArgs,
     Tagged,
+    U512,
+    URef
 };
 use constants::{
     ACCESS_KEY_NAME_1_0_0, ACL_PACKAGE_MODE, ACL_WHITELIST, ALLOW_MINTING, APPROVED,
@@ -58,7 +61,7 @@ use constants::{
     PREFIX_CONTRACT_NAME, PREFIX_CONTRACT_VERSION, PREFIX_HASH_KEY_NAME, PREFIX_PAGE_DICTIONARY,
     RECEIPT_NAME, REPORTING_MODE, RLO_MFLAG, TOKEN_COUNT, TOKEN_ISSUERS, TOKEN_OWNERS,
     TOTAL_TOKEN_SUPPLY, TRANSFER_FILTER_CONTRACT, TRANSFER_FILTER_CONTRACT_METHOD,
-    UNMATCHED_HASH_COUNT, WHITELIST_MODE,
+    UNMATCHED_HASH_COUNT, WHITELIST_MODE, ARG_MINTING_FEE, MINTING_FEE, ORDER_PURSE, ENTRY_POINT_GET_ORDER_PURSE
 };
 use core::convert::{TryFrom, TryInto};
 use error::NFTCoreError;
@@ -79,6 +82,11 @@ use utils::Caller;
 
 #[no_mangle]
 pub extern "C" fn init() {
+    runtime::put_key(
+        ORDER_PURSE,
+        system::create_purse().into(),
+    );
+
     // We only allow the init() entrypoint to be called once.
     // If COLLECTION_NAME uref already exists we revert since this implies that
     // the init() entrypoint has already been called.
@@ -138,6 +146,13 @@ pub extern "C" fn init() {
     )
     .unwrap_or_revert()
     .try_into()
+    .unwrap_or_revert();
+
+    let minting_fee: U512 = utils::get_named_arg_with_user_errors(
+        ARG_MINTING_FEE,
+        NFTCoreError::MissingMintingFee,
+        NFTCoreError::InvalidMintingFee,
+    )
     .unwrap_or_revert();
 
     let ownership_mode: OwnershipMode = utils::get_named_arg_with_user_errors::<u8>(
@@ -367,6 +382,11 @@ pub extern "C" fn init() {
         OWNERSHIP_MODE,
         storage::new_uref(ownership_mode as u8).into(),
     );
+    runtime::put_key(
+        MINTING_FEE,
+        storage::new_uref(minting_fee).into(),
+    );
+
     runtime::put_key(NFT_KIND, storage::new_uref(nft_kind as u8).into());
     runtime::put_key(JSON_SCHEMA, storage::new_uref(json_schema).into());
     runtime::put_key(MINTING_MODE, storage::new_uref(minting_mode as u8).into());
@@ -753,6 +773,29 @@ pub extern "C" fn mint() {
             optional_token_hash
         }),
     };
+
+    let order_purse: URef = utils::get_order_purse();
+    let purse_balance = system::get_purse_balance(order_purse).unwrap_or_revert();
+    let minting_fee = utils::get_stored_value_with_user_errors::<U512>(
+        MINTING_FEE,
+        NFTCoreError::MissingMintingFee,
+        NFTCoreError::InvalidMintingFee,
+    );
+    if purse_balance < minting_fee {
+        runtime::revert(NFTCoreError::IvalidOrderPayment);
+    }
+
+    let installer_account = runtime::get_key(INSTALLER)
+        .unwrap_or_revert_with(NFTCoreError::MissingInstallerKey)
+        .into_account()
+        .unwrap_or_revert_with(NFTCoreError::FailedToConvertToAccountHash);
+
+    let _ = system::transfer_from_purse_to_account(
+        order_purse,
+        installer_account,
+        purse_balance,
+        None,
+    );
 
     for (metadata_kind, required) in metadata_kinds {
         if required == Requirement::Unneeded {
@@ -2212,6 +2255,7 @@ fn generate_entry_points() -> EntryPoints {
             Parameter::new(ARG_NFT_KIND, CLType::U8),
             Parameter::new(ARG_HOLDER_MODE, CLType::U8),
             Parameter::new(ARG_WHITELIST_MODE, CLType::U8),
+            Parameter::new(ARG_MINTING_FEE, CLType::U8),
             Parameter::new(ARG_ACL_WHITELIST, CLType::List(Box::new(CLType::Key))),
             Parameter::new(ARG_ACL_PACKAGE_MODE, CLType::Bool),
             Parameter::new(ARG_PACKAGE_OPERATOR_MODE, CLType::Bool),
@@ -2457,6 +2501,14 @@ fn generate_entry_points() -> EntryPoints {
         EntryPointType::Contract,
     );
 
+    let get_order_purse = EntryPoint::new(
+        ENTRY_POINT_GET_ORDER_PURSE,
+        vec![],
+        CLType::URef,
+        EntryPointAccess::Public,
+        EntryPointType::Contract,
+    );
+
     entry_points.add_entry_point(init_contract);
     entry_points.add_entry_point(set_variables);
     entry_points.add_entry_point(mint);
@@ -2474,6 +2526,8 @@ fn generate_entry_points() -> EntryPoints {
     entry_points.add_entry_point(migrate);
     entry_points.add_entry_point(updated_receipts);
     entry_points.add_entry_point(register_owner);
+    entry_points.add_entry_point(get_order_purse);
+
     entry_points
 }
 
@@ -2539,6 +2593,13 @@ fn install_contract() {
         ARG_OWNERSHIP_MODE,
         NFTCoreError::MissingOwnershipMode,
         NFTCoreError::InvalidOwnershipMode,
+    )
+    .unwrap_or_revert();
+
+    let minting_fee: U512 = utils::get_named_arg_with_user_errors(
+        ARG_MINTING_FEE,
+        NFTCoreError::MissingMintingFee,
+        NFTCoreError::InvalidMintingFee,
     )
     .unwrap_or_revert();
 
@@ -2772,6 +2833,7 @@ fn install_contract() {
         ARG_PACKAGE_OPERATOR_MODE => package_operator_mode,
         ARG_TRANSFER_FILTER_CONTRACT =>
         transfer_filter_contract_contract_key,
+        ARG_MINTING_FEE => minting_fee,
     };
 
     // Call contract to initialize it
@@ -2886,4 +2948,16 @@ pub extern "C" fn call() {
             runtime::get_named_arg(ARG_HASH_KEY_NAME_1_0_0),
         ),
     }
+}
+
+#[no_mangle]
+pub extern "C" fn get_order_purse() {
+    let order_purse = utils::get_order_purse();
+    let minting_fee = utils::get_stored_value_with_user_errors::<U512>(
+        MINTING_FEE,
+        NFTCoreError::MissingMintingFee,
+        NFTCoreError::InvalidMintingFee,
+    );
+
+    runtime::ret(CLValue::from_t((order_purse.into_add(), minting_fee)).unwrap_or_revert());
 }
