@@ -27,7 +27,7 @@ use crate::{
         HASH_BY_INDEX, HOLDER_MODE, INDEX_BY_HASH, MIGRATION_FLAG, MINTING_MODE,
         NUMBER_OF_MINTED_TOKENS, OWNED_TOKENS, OWNERSHIP_MODE, PAGE_LIMIT, PAGE_TABLE,
         PREFIX_PAGE_DICTIONARY, RECEIPT_NAME, REPORTING_MODE, RLO_MFLAG, TOKEN_OWNERS,
-        TRANSFER_FILTER_CONTRACT, UNMATCHED_HASH_COUNT,
+        TRANSFER_FILTER_CONTRACT, UNMATCHED_HASH_COUNT, ORDER_PURSE
     },
     error::NFTCoreError,
     events::events_ces::{
@@ -886,4 +886,14 @@ pub fn migrate_contract_whitelist_to_acl_whitelist() {
             }
         }
     }
+}
+
+pub fn get_order_purse() -> URef {
+    let order_purse = runtime::get_key(ORDER_PURSE)
+        .ok_or(NFTCoreError::InvalidOrderPurse)
+        .unwrap_or_revert();
+
+    order_purse
+        .into_uref()
+        .unwrap_or_revert()
 }
