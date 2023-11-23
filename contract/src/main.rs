@@ -794,7 +794,7 @@ pub extern "C" fn mint() {
         NFTCoreError::InvalidMintingFee,
     );
     if purse_balance < minting_fee {
-        runtime::revert(NFTCoreError::IvalidOrderPayment);
+        runtime::revert(NFTCoreError::InvalidOrderPayment);
     }
 
     let installer_account = runtime::get_key(INSTALLER)
@@ -2267,7 +2267,7 @@ fn generate_entry_points() -> EntryPoints {
             Parameter::new(ARG_NFT_KIND, CLType::U8),
             Parameter::new(ARG_HOLDER_MODE, CLType::U8),
             Parameter::new(ARG_WHITELIST_MODE, CLType::U8),
-            Parameter::new(ARG_MINTING_FEE, CLType::U8),
+            Parameter::new(ARG_MINTING_FEE, CLType::U512),
             Parameter::new(ARG_ACL_WHITELIST, CLType::List(Box::new(CLType::Key))),
             Parameter::new(ARG_ACL_PACKAGE_MODE, CLType::Bool),
             Parameter::new(ARG_PACKAGE_OPERATOR_MODE, CLType::Bool),
