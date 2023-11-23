@@ -82,17 +82,17 @@ use utils::Caller;
 
 #[no_mangle]
 pub extern "C" fn init() {
-    runtime::put_key(
-        ORDER_PURSE,
-        system::create_purse().into(),
-    );
-
     // We only allow the init() entrypoint to be called once.
     // If COLLECTION_NAME uref already exists we revert since this implies that
     // the init() entrypoint has already been called.
     if utils::named_uref_exists(COLLECTION_NAME) {
         runtime::revert(NFTCoreError::ContractAlreadyInitialized);
     }
+
+    runtime::put_key(
+        ORDER_PURSE,
+        system::create_purse().into(),
+    );
 
     // Only the installing account may call this method. All other callers are erroneous.
     let installing_account = utils::get_account_hash(
@@ -2504,7 +2504,7 @@ fn generate_entry_points() -> EntryPoints {
     let get_order_purse = EntryPoint::new(
         ENTRY_POINT_GET_ORDER_PURSE,
         vec![],
-        CLType::URef,
+        CLType::Tuple2([ Box::new(CLType::URef), Box::new(CLType::U512)]),
         EntryPointAccess::Public,
         EntryPointType::Contract,
     );
@@ -2831,8 +2831,7 @@ fn install_contract() {
         ARG_EVENTS_MODE => events_mode,
         ARG_ACL_PACKAGE_MODE => acl_package_mode,
         ARG_PACKAGE_OPERATOR_MODE => package_operator_mode,
-        ARG_TRANSFER_FILTER_CONTRACT =>
-        transfer_filter_contract_contract_key,
+        ARG_TRANSFER_FILTER_CONTRACT => transfer_filter_contract_contract_key,
         ARG_MINTING_FEE => minting_fee,
     };
 
