@@ -177,7 +177,7 @@ pub enum NFTCoreError {
     InvalidMintingFee = 172,
     MissingOrderPurse = 173,
     InvalidOrderPurse = 174,
-    IvalidOrderPayment = 175,
+    InvalidOrderPayment = 175,
 }
 
 impl From<NFTCoreError> for ApiError {
