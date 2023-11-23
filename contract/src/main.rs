@@ -525,6 +525,18 @@ pub extern "C" fn set_variables() {
         runtime::revert(NFTCoreError::InvalidAccount);
     }
 
+    if let Some(minting_fee) = utils::get_optional_named_arg_with_user_errors::<U512>(
+        ARG_MINTING_FEE,
+        NFTCoreError::InvalidMintingFee,
+    ) {
+        let minting_fee_uref = utils::get_uref(
+            MINTING_FEE,
+            NFTCoreError::MissingMintingFee,
+            NFTCoreError::InvalidMintingFee,
+        );
+        storage::write(minting_fee_uref, minting_fee);
+    }
+
     if let Some(allow_minting) = utils::get_optional_named_arg_with_user_errors::<bool>(
         ARG_ALLOW_MINTING,
         NFTCoreError::InvalidAllowMinting,
