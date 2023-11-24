@@ -44,6 +44,7 @@ pub const ARG_TOTAL_TOKEN_SUPPLY: &str = "total_token_supply";
 pub const ARG_TRANSFER_FILTER_CONTRACT: &str = "transfer_filter_contract";
 pub const ARG_WHITELIST_MODE: &str = "whitelist_mode";
 pub const ARG_MINTING_FEE: &str = "minting_fee";
+pub const ARG_MAX_OWNED_TOKENS: &str = "max_owned_tokens";
 
 pub const ENTRY_POINT_APPROVE: &str = "approve";
 pub const ENTRY_POINT_BALANCE_OF: &str = "balance_of";
@@ -120,6 +121,7 @@ pub const TRANSFER_FILTER_CONTRACT_METHOD: &str = "can_transfer";
 pub const UNMATCHED_HASH_COUNT: &str = "unmatched_hash_count";
 pub const WHITELIST_MODE: &str = "whitelist_mode";
 pub const ORDER_PURSE: &str = "order_purse";
+pub const MAX_OWNED_TOKENS: &str = "max_owned_tokens";
 
 // The cap on the amount of tokens within a given CEP-78 collection.
 pub const MAX_TOTAL_TOKEN_SUPPLY: u64 = 1_000_000u64;
