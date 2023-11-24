@@ -61,7 +61,8 @@ use constants::{
     PREFIX_CONTRACT_NAME, PREFIX_CONTRACT_VERSION, PREFIX_HASH_KEY_NAME, PREFIX_PAGE_DICTIONARY,
     RECEIPT_NAME, REPORTING_MODE, RLO_MFLAG, TOKEN_COUNT, TOKEN_ISSUERS, TOKEN_OWNERS,
     TOTAL_TOKEN_SUPPLY, TRANSFER_FILTER_CONTRACT, TRANSFER_FILTER_CONTRACT_METHOD,
-    UNMATCHED_HASH_COUNT, WHITELIST_MODE, ARG_MINTING_FEE, MINTING_FEE, ORDER_PURSE, ENTRY_POINT_GET_ORDER_PURSE
+    UNMATCHED_HASH_COUNT, WHITELIST_MODE, ARG_MINTING_FEE, MINTING_FEE, ORDER_PURSE, ENTRY_POINT_GET_ORDER_PURSE,
+    ARG_MAX_OWNED_TOKENS, MAX_OWNED_TOKENS
 };
 use core::convert::{TryFrom, TryInto};
 use error::NFTCoreError;
@@ -152,6 +153,13 @@ pub extern "C" fn init() {
         ARG_MINTING_FEE,
         NFTCoreError::MissingMintingFee,
         NFTCoreError::InvalidMintingFee,
+    )
+    .unwrap_or_revert();
+
+    let max_owned_tokens: u64 = utils::get_named_arg_with_user_errors::<u64>(
+        ARG_MAX_OWNED_TOKENS,
+        NFTCoreError::MissingMaxOwnedTokens,
+        NFTCoreError::InvalidMaxOwnedTokens,
     )
     .unwrap_or_revert();
 
@@ -386,6 +394,10 @@ pub extern "C" fn init() {
         MINTING_FEE,
         storage::new_uref(minting_fee).into(),
     );
+    runtime::put_key(
+        MAX_OWNED_TOKENS,
+        storage::new_uref(max_owned_tokens).into(),
+    );
 
     runtime::put_key(NFT_KIND, storage::new_uref(nft_kind as u8).into());
     runtime::put_key(JSON_SCHEMA, storage::new_uref(json_schema).into());
@@ -535,6 +547,18 @@ pub extern "C" fn set_variables() {
             NFTCoreError::InvalidMintingFee,
         );
         storage::write(minting_fee_uref, minting_fee);
+    }
+
+    if let Some(max_owned_tokens) = utils::get_optional_named_arg_with_user_errors::<u64>(
+        ARG_MAX_OWNED_TOKENS,
+        NFTCoreError::InvalidMaxOwnedTokens,
+    ) {
+        let max_owned_tokens_uref = utils::get_uref(
+            MAX_OWNED_TOKENS,
+            NFTCoreError::MissingMaxOwnedTokens,
+            NFTCoreError::InvalidMaxOwnedTokens,
+        );
+        storage::write(max_owned_tokens_uref, max_owned_tokens);
     }
 
     if let Some(allow_minting) = utils::get_optional_named_arg_with_user_errors::<bool>(
@@ -853,17 +877,29 @@ pub extern "C" fn mint() {
     );
     let owned_tokens_item_key = utils::encode_dictionary_item_key(token_owner_key);
 
+    let max_owned_tokens = utils::get_stored_value_with_user_errors::<u64>(
+        MAX_OWNED_TOKENS,
+        NFTCoreError::MissingMaxOwnedTokens,
+        NFTCoreError::InvalidMaxOwnedTokens,
+    );
+    let token_count =
+        match utils::get_dictionary_value_from_key::<u64>(TOKEN_COUNT, &owned_tokens_item_key) {
+            Some(balance) => balance,
+            None => 0u64,
+        };
+
+    if token_count >= max_owned_tokens {
+        runtime::revert(NFTCoreError::MaxOwnedTokensExceeded);
+    }
+
     if let NFTIdentifierMode::Hash = identifier_mode {
         // Update the forward and reverse trackers
         utils::insert_hash_id_lookups(minted_tokens_count, token_identifier.clone());
     }
 
     //Increment the count of owned tokens.
-    let updated_token_count =
-        match utils::get_dictionary_value_from_key::<u64>(TOKEN_COUNT, &owned_tokens_item_key) {
-            Some(balance) => balance + 1u64,
-            None => 1u64,
-        };
+    let updated_token_count = token_count + 1u64;
+
     utils::upsert_dictionary_value_from_key(
         TOKEN_COUNT,
         &owned_tokens_item_key,
@@ -2268,6 +2304,7 @@ fn generate_entry_points() -> EntryPoints {
             Parameter::new(ARG_HOLDER_MODE, CLType::U8),
             Parameter::new(ARG_WHITELIST_MODE, CLType::U8),
             Parameter::new(ARG_MINTING_FEE, CLType::U512),
+            Parameter::new(ARG_MAX_OWNED_TOKENS, CLType::U64),
             Parameter::new(ARG_ACL_WHITELIST, CLType::List(Box::new(CLType::Key))),
             Parameter::new(ARG_ACL_PACKAGE_MODE, CLType::Bool),
             Parameter::new(ARG_PACKAGE_OPERATOR_MODE, CLType::Bool),
@@ -2615,6 +2652,12 @@ fn install_contract() {
     )
     .unwrap_or_revert();
 
+    let max_owned_tokens: u64 = utils::get_named_arg_with_user_errors::<u64>(
+        ARG_MAX_OWNED_TOKENS,
+        NFTCoreError::MissingMaxOwnedTokens,
+        NFTCoreError::InvalidMaxOwnedTokens,
+    ).unwrap_or_revert();
+
     // Represents the type of NFT (i.e something physical/digital)
     // which will be minted over the lifetime of the contract.
     // Refer to the enum `NFTKind`
@@ -2845,6 +2888,7 @@ fn install_contract() {
         ARG_PACKAGE_OPERATOR_MODE => package_operator_mode,
         ARG_TRANSFER_FILTER_CONTRACT => transfer_filter_contract_contract_key,
         ARG_MINTING_FEE => minting_fee,
+        ARG_MAX_OWNED_TOKENS => max_owned_tokens,
     };
 
     // Call contract to initialize it

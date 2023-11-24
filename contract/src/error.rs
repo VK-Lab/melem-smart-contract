@@ -178,6 +178,9 @@ pub enum NFTCoreError {
     MissingOrderPurse = 173,
     InvalidOrderPurse = 174,
     InvalidOrderPayment = 175,
+    MissingMaxOwnedTokens = 176,
+    InvalidMaxOwnedTokens = 177,
+    MaxOwnedTokensExceeded = 178,
 }
 
 impl From<NFTCoreError> for ApiError {
